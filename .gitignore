@@ -33,3 +33,7 @@ ENV/
 *.bin
 data/
 logs/
+
+# Simulation outputs
+MUJOCO_LOG.TXT
+simulation_results.png
