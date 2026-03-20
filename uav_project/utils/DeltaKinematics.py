@@ -19,8 +19,7 @@ class DeltaKinematics:
 		self.rod_ee = rod_ee
 		self.r_b = r_b
 		self.r_ee = r_ee
-		self.alpha = np.array([0, 120, 240])
-
+		self.alpha = torch.tensor([0.0, 120.0, 240.0], dtype=torch.float32)
 
 	def fk(self, theta):
 		# calculate FK, takes theta(deg)
@@ -28,11 +27,12 @@ class DeltaKinematics:
 		rod_b = self.rod_b
 		rod_ee = self.rod_ee
 
-		theta = np.array(theta) 
+		if not isinstance(theta, torch.Tensor):
+			theta = torch.tensor(theta, dtype=torch.float32)
 
-		theta1 = theta[0]
-		theta2 = theta[1]
-		theta3 = theta[2]
+		theta1 = theta[0].item()
+		theta2 = theta[1].item()
+		theta3 = theta[2].item()
 
 		side_ee	= 2/tand(30)*self.r_ee 
 		side_b 	= 2/tand(30)*self.r_b
@@ -74,7 +74,14 @@ class DeltaKinematics:
 		x0 = (a1*z0 + b1)/dnm
 		y0 = (a2*z0 + b2)/dnm
 
-		return np.array([x0, y0, z0])
+		# Frame Transform Back
+		# The IK uses pos = mat @ _3d_pose, so FK should use _3d_pose = mat.T @ pos
+		# pos = torch.tensor([x0, y0, z0], dtype=torch.float32)
+		# mat = torch.tensor([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float32)
+		# _3d_pose = torch.matmul(mat.T, pos)
+		# return _3d_pose
+
+		return torch.tensor([x0, y0, z0], dtype=torch.float32)
 
 	def ik(self, _3d_pose):
 		# calculates IK, returns theta(deg)		
@@ -85,32 +92,35 @@ class DeltaKinematics:
 		r_b = self.r_b 
 		alpha = self.alpha 
 
-		F1_pos = ([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
-		J1_pos = ([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
-		theta = [0, 0, 0]
+		theta = [0.0, 0.0, 0.0]
         
         # Frame Transform
-		mat = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]])
-		pos = np.dot(mat,_3d_pose)
-		print(pos)
-		[x0, y0, z0] = pos	
-	
+		mat = torch.tensor([[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]], dtype=torch.float32)
+		if not isinstance(_3d_pose, torch.Tensor):
+			_3d_pose = torch.tensor(_3d_pose, dtype=torch.float32)
+		
+		# Ensure _3d_pose is 1D for dot product or matrix multiplication
+		pos = torch.matmul(mat, _3d_pose.view(-1))
+		
+		x0, y0, z0 = pos[0], pos[1], pos[2]
+		
+		# Pre-calculate sine and cosine to avoid repetitive tensor operations inside loop
+		cos_alpha = torch.cos(torch.deg2rad(alpha))
+		sin_alpha = torch.sin(torch.deg2rad(alpha))
+
 		for i in [0, 1, 2]:
 
-			x = x0*cosd(alpha[i]) + y0*sind(alpha[i])
-			y = -x0*sind(alpha[i]) + y0*cosd(alpha[i])
+			x = x0*cos_alpha[i] + y0*sin_alpha[i]
+			y = -x0*sin_alpha[i] + y0*cos_alpha[i]
 			z = z0
 
-			ee_pos = np.array([x, y, z])
+			# ee_pos = torch.tensor([x, y, z], dtype=torch.float32)
 
-			E1_pos = ee_pos + np.array([0, -r_ee, 0])
-			E1_prime_pos = np.array([0, E1_pos[1], E1_pos[2]])
-			F1_pos[i] = np.array([0, -r_b, 0])
-
-			_x0 = E1_pos[0]
-			_y0 = E1_pos[1]
-			_z0 = E1_pos[2]
-			_yf = F1_pos[i][1]
+			# E1_pos = ee_pos + torch.tensor([0.0, -r_ee, 0.0], dtype=torch.float32)
+			_x0 = x
+			_y0 = y - r_ee
+			_z0 = z
+			_yf = -r_b
 
 			c1 = (_x0**2 + _y0**2 + _z0**2 + rod_b**2 - rod_ee**2 - _yf**2)/(2*_z0)
 			c2 = (_yf - _y0)/_z0
@@ -124,5 +134,8 @@ class DeltaKinematics:
 			J1_z = c1 + c2*J1_y
 			F1_y = -r_b
 
-			theta[i] = math.atan(-J1_z/(F1_y - J1_y))*180/torch.pi
-		return np.array(theta)*(-1) # The definition of +/- is opposite.
+			val = -J1_z/(F1_y - J1_y)
+			theta[i] = torch.atan(torch.tensor(val, dtype=torch.float32)).item()*180/torch.pi
+		
+		# Return negative theta array as expected by the caller
+		return -torch.tensor(theta, dtype=torch.float32)

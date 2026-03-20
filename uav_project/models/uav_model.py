@@ -44,6 +44,19 @@ class UAVModel:
             self.ee_sensor_id = -1
             self.ee_lin_vel_sensor_id = -1
 
+        # --- Dynamic Motor Parameter Update ---
+        from ..config import CT, CM
+        for i in range(4):
+            actuator_name = f'rotor{i}'
+            actuator_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, actuator_name)
+            if actuator_id != -1:
+                # Update the gear ratio for thrust (index 2) and torque (index 5)
+                # gear format: [0, 0, CT, 0, 0, +/-CM]
+                # Rotor 0, 2: CCW -> -CM
+                # Rotor 1, 3: CW  -> +CM
+                self.model.actuator_gear[actuator_id, 2] = CT
+                self.model.actuator_gear[actuator_id, 5] = -CM if i in [0, 2] else CM
+
 
 
     def get_mass(self):
@@ -128,10 +141,6 @@ class UAVModel:
         Prints the current state of the UAV.
         """
         UAV_pos, UAV_vel, UAV_att, UAV_ang_rate = self.get_uav_state()
-        End_platform_pos, End_platform_vel, Base_pos, Base_vel, Relative_pos, Relative_vel = self.get_delta_state()
-
-        relative_pos = self.get_ee_sensor_pos()
-        relative_vel = self.get_ee_sensor_lin_vel()
         
         os.system('clear')
         # 设置numpy打印选项
@@ -142,12 +151,17 @@ class UAVModel:
         print(f"UAV Attitude (Quaternion): {UAV_att}")
         print(f"UAV Angle Rate: {UAV_ang_rate}")
 
-        print(f"End Platform Position: {End_platform_pos}")
-        print(f"End Platform Velocity: {End_platform_vel}")
-        print(f"Base Position: {Base_pos}")
-        print(f"Base Velocity: {Base_vel}")
-        print(f"End Platform Sensor Position: {relative_pos}")
-        print(f"End Platform Sensor Linear Velocity: {relative_vel}")
+        if getattr(self, 'has_delta', False):
+            End_platform_pos, End_platform_vel, Base_pos, Base_vel, Relative_pos, Relative_vel = self.get_delta_state()
+            relative_pos = self.get_ee_sensor_pos()
+            relative_vel = self.get_ee_sensor_lin_vel()
+            
+            print(f"End Platform Position: {End_platform_pos}")
+            print(f"End Platform Velocity: {End_platform_vel}")
+            print(f"Base Position: {Base_pos}")
+            print(f"Base Velocity: {Base_vel}")
+            print(f"End Platform Sensor Position: {relative_pos}")
+            print(f"End Platform Sensor Linear Velocity: {relative_vel}")
 
     def get_imu_data(self):
         """
@@ -226,12 +240,14 @@ class UAVModel:
             force_body: [Fx, Fy, Fz] in Body frame.
             torque_body: [Mx, My, Mz] in Body frame.
         """
-        self.data.actuator('forcex').ctrl[0] = force_body[0]
-        self.data.actuator('forcey').ctrl[0] = force_body[1]
-        self.data.actuator('forcez').ctrl[0] = force_body[2]
-        self.data.actuator('Mx').ctrl[0] = torque_body[0]
-        self.data.actuator('My').ctrl[0] = torque_body[1]
-        self.data.actuator('Mz').ctrl[0] = torque_body[2]
+        # Safe assignment checking if actuators exist
+        if mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, 'forcex') != -1:
+            self.data.actuator('forcex').ctrl[0] = force_body[0]
+            self.data.actuator('forcey').ctrl[0] = force_body[1]
+            self.data.actuator('forcez').ctrl[0] = force_body[2]
+            self.data.actuator('Mx').ctrl[0] = torque_body[0]
+            self.data.actuator('My').ctrl[0] = torque_body[1]
+            self.data.actuator('Mz').ctrl[0] = torque_body[2]
 
     def set_delta_motor_velocities(self, velocities):
         """
@@ -267,4 +283,5 @@ class UAVModel:
             motor_speeds: List/Array of 4 motor speeds.
         """
         for i in range(4):
-            self.data.actuator(f'rotor{i}').ctrl[0] = motor_speeds[i]
+            if mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, f'rotor{i}') != -1:
+                self.data.actuator(f'rotor{i}').ctrl[0] = motor_speeds[i]

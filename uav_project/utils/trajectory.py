@@ -2,9 +2,9 @@
 Trajectory generation utilities for UAV simulation.
 """
 
-import math
-from typing import List, Tuple
 import torch
+from typing import List, Tuple
+
 
 def generate_circular_trajectory(
     center: List[float],  # Center coordinates [x, y, z]
@@ -53,16 +53,16 @@ def generate_circular_trajectory(
             angle = torch.tensor(start_angle, dtype=torch.float32)
         
         # Calculate Position
-        x = center[0] + radius * torch.cos(angle).item()
-        y = center[1] + radius * torch.sin(angle).item()
+        x = center[0] + radius * torch.cos(angle)
+        y = center[1] + radius * torch.sin(angle)
         
         # Calculate Z
         if height_variation:
-            z = center[2] + height_amplitude * torch.sin(angle * 2).item()
+            z = center[2] + height_amplitude * torch.sin(angle * 2) 
         else:
-            z = center[2]
+            z = torch.tensor(center[2], dtype=torch.float32)
         
-        trajectory.append((t, [x, y, z]))
+        trajectory.append((t, [x.item(), y.item(), z.item()]))
     
     # Hold last position
     if hold_last and trajectory:
@@ -110,10 +110,10 @@ def generate_spiral_trajectory(
         current_radius = start_radius + (end_radius - start_radius) * i / (num_points - 1)
         
         # Calculate position
-        x = center[0] + current_radius * torch.cos(angle).item()
-        y = center[1] + current_radius * torch.sin(angle).item()
-        z = center[2]
+        x = center[0] + current_radius * torch.cos(angle)
+        y = center[1] + current_radius * torch.sin(angle)
+        z = torch.tensor(center[2], dtype=torch.float32)
         
-        trajectory.append((t, [x, y, z]))
+        trajectory.append((t, [x.item(), y.item(), z.item()]))
     
     return trajectory

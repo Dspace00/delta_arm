@@ -23,15 +23,14 @@ from uav_project.utils.trajectory import generate_circular_trajectory, generate_
 
 def main():
     # 0. Set total sim time (in seconds)
-    total_sim_time = 100
-
+    total_sim_time = 20.0
 
     # 1. Setup Paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(current_dir) # Delta_project
     
     # You can switch between "Delta.xml" and "UAV.xml" here
-    model_filename = "UAV.xml" 
+    model_filename = "Delta.xml" 
     model_path = os.path.join(current_dir, "meshes", model_filename)
     
     if not os.path.exists(model_path):
@@ -65,15 +64,16 @@ def main():
         radius=1.0,
         total_time=total_sim_time,
         num_points=100,
-        clockwise=False
+        clockwise=False,
+        height_variation=False
     )
     trajectory0 = [
-        (0.0, [0, 0, 0.5]),
-        (100, [0, 0, 0.5])
+        (0.0, [0, 0, 1.5]),
+        (100.0, [0, 0, 1.5])
     ]
 
     # 7. Run Simulation (Headless=True due to SSH constraints)
-    simulator.run(duration=total_sim_time, trajectory=trajectory0, headless=False)
+    simulator.run(duration=total_sim_time, trajectory=trajectory, headless=False)
     
     # 8. Plot Results
     logger.plot_results(save_path=os.path.join(current_dir, 'simulation_results.png'))

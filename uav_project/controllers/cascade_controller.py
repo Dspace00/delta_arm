@@ -28,7 +28,17 @@ class CascadeController:
         self.mixer = Mixer()
         
         # Get actual UAV mass from model
-        self.mass = self.uav.get_mass()
+        # The UAV_body is not the root of the kinematic tree for the delta arm in some XML configurations
+        # (e.g. if the delta base is welded/connected rather than a direct child body).
+        # To be safe and accurately reflect the total physics mass of the entire model
+        # we calculate the sum of all body masses in the mujoco model.
+        if hasattr(self.uav, 'model'):
+            # Calculate total mass of all bodies in the kinematic tree
+            # Filter out worldbody (mass 0) and any non-dynamic bodies
+            self.mass = sum(m for m in self.uav.model.body_mass if m > 0)
+            print(f"Detected total system mass from MuJoCo: {self.mass:.3f} kg")
+        else:
+            self.mass = MASS
         
         # Simulation time tracking
         self.sim_time = 0.0
@@ -122,6 +132,13 @@ class CascadeController:
                 # Total desired acceleration in World Frame
                 total_acc = acc_cmd + gravity_comp
                 
+                # --- FIX: Prevent inverting the drone during fast descent ---
+                # A standard quadrotor cannot generate downward thrust without flipping.
+                # To prevent it from trying to flip when commanded to descend rapidly,
+                # we constrain the Z-component of the total acceleration to be strictly positive.
+                if total_acc[2, 0] < 0.1:
+                    total_acc[2, 0] = 0.1
+                
                 # Calculate Total Thrust Vector (World Frame)
                 self.total_thrust_vector = self.mass * total_acc
                 
@@ -166,7 +183,7 @@ class CascadeController:
             yaw_axis = torch.tensor([[-torch.sin(torch.tensor(yaw_target))], [torch.cos(torch.tensor(yaw_target))], [0.0]], dtype=torch.float32)
             
             # Cross product requires 1D or flattened for torch.cross in basic usage
-            x_b = torch.cross(yaw_axis.view(-1), z_b.view(-1)).view(3, 1)
+            x_b = torch.cross(yaw_axis.view(-1), z_b.view(-1), dim=0).view(3, 1)
             x_b_norm = torch.norm(x_b)
             
             if x_b_norm < 1e-6:
@@ -174,7 +191,7 @@ class CascadeController:
             else:
                 x_b = x_b / x_b_norm
                 
-            y_b = torch.cross(z_b.view(-1), x_b.view(-1)).view(3, 1)
+            y_b = torch.cross(z_b.view(-1), x_b.view(-1), dim=0).view(3, 1)
             y_b = y_b / torch.norm(y_b)
             
             # Rotation Matrix [x_b, y_b, z_b]
@@ -212,17 +229,25 @@ class CascadeController:
             self.mixer_output_log[:3] = f_body_np
             self.mixer_output_log[3:] = t_body_np
             
-            # self.uav.set_actuators(f_body_np, t_body_np) # Disabled direct force actuation
+            # self.uav.set_actuators(f_body_np, t_body_np) # Enabled direct force actuation for debug
             
-            thrust_mag = f_body_np[2]
-            # Use the gym-pybullet-drones style inverse mixing matrix
-            motor_speeds_krpm = self.mixer.calculate(thrust_mag, t_body_np[0], t_body_np[1], t_body_np[2])
+            # --- FIX: Saturation of thrust ---
+            # Drones can only generate positive thrust in the body Z direction.
+            # We must not allow negative thrust (which would imply pulling the drone downwards).
+            from ..config import CT, MAX_MOTOR_SPEED_KRPM
+            max_total_thrust = 4 * CT * (MAX_MOTOR_SPEED_KRPM ** 2)
+            # Make sure we use the positive Z thrust from the body frame (which points upwards relative to drone)
+            # thrust_mag is Fz in body frame.
+            thrust_mag = np.clip(f_body_np[2], 0.0, max_total_thrust)
+            
+            # Use the SE3 style mixing matrix (returns squared speeds in krpm^2)
+            motor_speeds_sq = self.mixer.calculate(thrust_mag, t_body_np[0], t_body_np[1], t_body_np[2])
             
             # Apply squared motor speeds to MuJoCo rotor actuators
-            motor_speeds_sq = motor_speeds_krpm ** 2
             self.uav.set_motor_speeds(motor_speeds_sq)
             
-            self.motor_thrusts = motor_speeds_sq * self.mixer.Ct # Log actual thrust per motor
+            # For logging actual thrust per motor: T = Ct * w^2
+            self.motor_thrusts = motor_speeds_sq * self.mixer.Ct
 
     def get_log_data(self):
         """Returns data for logging."""

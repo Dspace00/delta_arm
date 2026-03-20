@@ -38,6 +38,8 @@ class DeltaController:
         self.traj_period = 8.0 # seconds for one circle
         
         self.last_update_time = 0.0
+        self.current_des_pos_log = np.zeros(3)
+        self.current_actual_pos_log = np.zeros(3)
         
     def get_circular_trajectory(self, t: float) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -53,6 +55,7 @@ class DeltaController:
         """
         with torch.no_grad():
             # Use torch constants and math functions
+            center = torch.tensor([[0.0], [0.0], [self.traj_z]], dtype=torch.float32)
             omega = 2 * torch.pi / self.traj_period
             phase = omega * t
             
@@ -91,18 +94,26 @@ class DeltaController:
             # Get desired state
             des_pos, des_vel = self.get_circular_trajectory(sim_time)
             
+            # Update log variables
+            self.current_des_pos_log = des_pos.squeeze().cpu().numpy()
+            self.current_actual_pos_log = pos_np
+            
+            # Temporary print for tracking error
+            pos_err = self.current_des_pos_log - self.current_actual_pos_log
+            # print(f"Time: {sim_time:.2f} | Delta EE Error (m): X={pos_err[0]:.4f}, Y={pos_err[1]:.4f}, Z={pos_err[2]:.4f}")
+            
             # 3. Calculate Controls
             if self.control_mode == 'position':
                 # Convert pos back to numpy for IK library
-                # Reason: DeltaKinematics.ik unpacks array into 3 elements, expects 1D (3,)
+                # Reason: DeltaKinematics.ik expects a Tensor now
                 # Current Dimension: des_pos shape (3, 1) -> (3,)
-                des_pos_np = des_pos.squeeze().cpu().numpy()
-                joint_angles_deg = self.kinematics.ik(des_pos_np)
+                des_pos_tensor = des_pos.squeeze()
+                joint_angles_deg = self.kinematics.ik(des_pos_tensor)
                 
                 if isinstance(joint_angles_deg, int) and joint_angles_deg == -1:
-                    print(f"Warning: IK failed for target {des_pos_np}")
+                    print(f"Warning: IK failed for target {des_pos_tensor}")
                 else:
-                    joint_angles_rad = np.deg2rad(joint_angles_deg)
+                    joint_angles_rad = torch.deg2rad(joint_angles_deg)
                     self.uav.set_delta_motor_positions(joint_angles_rad)
                     
             elif self.control_mode == 'velocity':

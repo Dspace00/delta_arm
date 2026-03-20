@@ -135,8 +135,9 @@ class AttitudePID3D(BasePID):
             tar_q = np.quaternion(*setpoint.squeeze().cpu().numpy())
             cur_q = np.quaternion(*current_value.squeeze().cpu().numpy())
             
+            # Correct attitude error in body frame: q_err = q_cur^{-1} * q_tar
             cur_conj = cur_q.conjugate()
-            quat_error = tar_q * cur_conj
+            quat_error = cur_conj * tar_q
             
             # Extract vector part
             error_np = np.array([quat_error.x, quat_error.y, quat_error.z]).reshape(3, 1)

@@ -38,10 +38,15 @@ class CombinedController:
 
     def get_log_data(self):
         """
-        Returns log data. Currently delegates to UAV controller.
+        Returns log data.
         """
-        # TODO: Extend Logger to log Delta states if needed.
-        return self.uav_controller.get_log_data()
+        uav_data = self.uav_controller.get_log_data()
+        if self.delta_controller is not None:
+            delta_des = self.delta_controller.current_des_pos_log
+            delta_act = self.delta_controller.current_actual_pos_log
+            return uav_data + (delta_des, delta_act)
+        else:
+            return uav_data + (None, None)
 
     def print_state(self):
         """
