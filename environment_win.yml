@@ -21,3 +21,5 @@ dependencies:
       - torch==2.3.1+cpu
       - torchvision==0.18.1+cpu
       - torchaudio==2.3.1+cpu
+      # pygame for PS2 joystick support
+      - pygame>=2.5.0

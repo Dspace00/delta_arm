@@ -23,7 +23,7 @@ from uav_project.utils.trajectory import generate_circular_trajectory, generate_
 
 def main():
     # 0. Set total sim time (in seconds)
-    total_sim_time = 30.0
+    total_sim_time = 100.0
 
     # 1. Setup Paths
     current_dir = os.path.dirname(os.path.abspath(__file__))
